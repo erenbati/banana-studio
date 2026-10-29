@@ -147,3 +147,14 @@ test('terminal/deleted rows cannot be resurrected when task registration finishe
   assert.equal(f.row().status, 'failed');
   assert.equal(f.row().task_id, '');
 });
+
+test('a tracking failure explicitly reports that no provider request was dispatched', async () => {
+  const res = { code: 200, payload: null,
+    status(n) { this.code = n; return this; },
+    json(value) { this.payload = value; return this; } };
+  const db = { from() { throw new Error('database offline'); } };
+  const result = await claimVideoSubmission(db, res, 'gen1', 'user1', 'fal', 'seedance-2.5', body);
+  assert.equal(result, null);
+  assert.equal(res.code, 503);
+  assert.equal(res.payload.dispatched, false);
+});

@@ -108,7 +108,7 @@ export async function claimVideoSubmission(
     }
     return { kind: 'fresh', id };
   } catch {
-    res.status(503).json({ error: 'Video submission tracking is unavailable. No provider request was dispatched.', retryable: true });
+    res.status(503).json({ error: 'Video submission tracking is unavailable. No provider request was dispatched.', retryable: true, dispatched: false });
     return null;
   }
 }
