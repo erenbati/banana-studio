@@ -58,7 +58,7 @@ test('a cached retry and a different source save for one video are serialized', 
     }
     return { data: null, error: null };
   };
-  const media = (url, prompt) => ({ id: 'v5', url, prompt, mediaType: 'video', createdAt: 1, videoModel: 'seedance-2.5', referenceImages: [] });
+  const media = (url, prompt, id = 'v5') => ({ id, url, prompt, mediaType: 'video', createdAt: 1, videoModel: 'seedance-2.5', referenceImages: [] });
   let releaseRetry;
   const retryGate = new Promise(resolve => { releaseRetry = resolve; });
   let gateEnabled = false;
@@ -68,6 +68,7 @@ test('a cached retry and a different source save for one video are serialized', 
   };
   let retryA;
   let saveB;
+  let independentSave;
   try {
     await saveVideo(media('https://p/A.mp4', 'source A'));
     gateEnabled = true;
@@ -79,19 +80,34 @@ test('a cached retry and a different source save for one video are serialized', 
 
     const sessionReadsBeforeB = globalThis.__sessionReads;
     saveB = saveVideo(media('https://p/B.mp4', 'source B'));
+    await new Promise(resolve => setImmediate(resolve));
     const bWaitedBehindA = globalThis.__sessionReads === sessionReadsBeforeB;
     // On the unfixed code B runs while A is paused; finish B first to make the stale-row race deterministic.
     if (!bWaitedBehindA) await saveB;
+
+    let independentSettled = false;
+    let independentError;
+    independentSave = saveVideo(media('https://p/C.mp4', 'source C', 'v6')).then(
+      () => { independentSettled = true; },
+      error => { independentError = error; independentSettled = true; },
+    );
+    const independentDeadline = Date.now() + 5000;
+    while (!independentSettled && Date.now() < independentDeadline) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.ok(independentSettled, 'a different generation can save while A is paused');
+    assert.equal(independentError, undefined);
+    assert.ok(globalThis.__rows.some(row => row.id === 'v6'), 'the independent generation row was persisted');
+
     releaseRetry();
     await Promise.all([retryA, saveB]);
 
     const finalRow = globalThis.__rows.at(-1);
+    assert.ok(finalRow, 'the same-generation save persisted a final row');
     assert.equal(globalThis.__objects.get(finalRow.storage_path), `https://p/${finalRow.prompt === 'source A' ? 'A' : 'B'}.mp4`);
     assert.equal(finalRow.prompt, 'source B');
     assert.ok(bWaitedBehindA, 'the second source waited until the cached retry finished');
   } finally {
     releaseRetry();
-    await Promise.allSettled([retryA, saveB].filter(Boolean));
+    await Promise.allSettled([retryA, saveB, independentSave].filter(Boolean));
     globalThis.__signGate = null; globalThis.__blobSource = false; globalThis.__signFails = null;
     Object.assign(console, { warn, error }); globalThis.fetch = fetchImpl;
   }
@@ -157,6 +173,7 @@ test('saves of one video that overlap do not let a retry reuse a file the other 
     // B uses the same ID and waits for A's durable URL and row write to finish.
     const sessionsBeforeB = globalThis.__sessionReads;
     const second = save('https://p/B.mp4', true);
+    await new Promise(resolve => setImmediate(resolve));
     const bWaitedBehindA = globalThis.__sessionReads === sessionsBeforeB;
     if (!bWaitedBehindA) await second;
     releaseA(); await Promise.all([first, second]);
