@@ -26,14 +26,14 @@ export const createImageGenerationQueue = ({
       const key = JSON.stringify([owner, id]);
       const existing = jobs.get(key);
       if (existing) {
-        if (onStage) { existing.listeners.add(onStage); onStage(existing.stage); }
+        if (onStage) { existing.listeners.add(onStage); try { onStage(existing.stage); } catch { existing.listeners.delete(onStage); } }
         return existing.promise as Promise<T>;
       }
       let resolve!: (result: T) => void, reject!: (error: unknown) => void;
       const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
       const job = { promise, stage: 'queued' as ImageSubmissionStage, listeners: new Set(onStage ? [onStage] : []) };
       jobs.set(key, job);
-      const stage = (value: ImageSubmissionStage) => { job.stage = value; job.listeners.forEach(listener => listener(value)); };
+      const stage = (value: ImageSubmissionStage) => { job.stage = value; job.listeners.forEach(listener => { try { listener(value); } catch { job.listeners.delete(listener); } }); };
       stage('queued');
       waiting.push(() => {
         const ticket: Ticket = {
