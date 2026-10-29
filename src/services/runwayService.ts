@@ -1013,15 +1013,25 @@ export const createVideoTask = async (
   if (preparedRouteError) throw new Error(preparedRouteError);
   const { data: { session: submitSession } } = await supabase.auth.getSession();
   if (submitSession?.user?.id !== initiatingUserId) throw new Error('Session changed before video submission.');
-  const createRes = await fetch('/api/seedance-video', {
-    method: 'POST',
-    headers: await getServerAuthHeaders(initiatingUserId),
-    body: JSON.stringify(body),
-  });
+  let createRes: Response;
+  try {
+    createRes = await fetch('/api/seedance-video', {
+      method: 'POST',
+      headers: await getServerAuthHeaders(initiatingUserId),
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new RecoverableVideoTaskError('Video submission acknowledgement was lost. Check provider task history before attempting another paid request.');
+  }
 
   const createData = await createRes.json().catch(() => null);
-  if (!createRes.ok) throw new Error(createData?.error || 'Failed to start video generation');
-  if (!createData?.taskId) throw new Error('No task ID returned');
+  if (!createRes.ok && !createData?.taskId) {
+    if (createRes.status >= 500 || !createData) {
+      throw new RecoverableVideoTaskError(createData?.error || 'Provider acceptance could not be confirmed. Do not submit again before checking task history.');
+    }
+    throw new Error(createData?.error || 'Failed to start video generation');
+  }
+  if (!createData?.taskId) throw new RecoverableVideoTaskError('No task ID was confirmed. Check provider task history before submitting again.');
 
   const usage = createData.usage && typeof createData.usage === 'object'
     ? createData.usage
