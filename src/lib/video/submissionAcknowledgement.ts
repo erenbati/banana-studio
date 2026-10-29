@@ -3,6 +3,6 @@ export const isUncertainVideoSubmissionFailure = (status: number, body: unknown)
   const result = body && typeof body === 'object' ? body as {
     dispatched?: unknown; code?: unknown;
   } : null;
-  if (result?.dispatched === false) return false;
+  if (status === 401 || status === 403 || result?.dispatched === false) return false;
   return status >= 500 || !result || (status === 409 && result.code === 'GENERATION_SUBMITTING');
 };

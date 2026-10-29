@@ -17,6 +17,13 @@ test('explicit no-dispatch response is a normal error even if HTTP status is 503
   assert.equal(isUncertainVideoSubmissionFailure(409, { code: 'GENERATION_SUBMITTING', dispatched: false }), false);
 });
 
+test('authentication refusals with unreadable response bodies are never ambiguous paid dispatches', () => {
+  assert.equal(isUncertainVideoSubmissionFailure(401, null), false);
+  assert.equal(isUncertainVideoSubmissionFailure(403, null), false);
+  assert.equal(isUncertainVideoSubmissionFailure(401, { error: 'session expired' }), false);
+  assert.equal(isUncertainVideoSubmissionFailure(403, { error: 'forbidden' }), false);
+});
+
 test('uncertain provider acceptance stays recoverable', () => {
   assert.equal(isUncertainVideoSubmissionFailure(502, { error: 'provider timeout' }), true);
   assert.equal(isUncertainVideoSubmissionFailure(409, { code: 'GENERATION_SUBMITTING' }), true);
