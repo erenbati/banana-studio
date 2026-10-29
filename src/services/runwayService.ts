@@ -848,7 +848,7 @@ const createH3MaxVideoTask = async (config: GenerationConfig, initiatingUserId?:
   const result=await response.json().catch(()=>null);
   // An accepted task remains usable if only its gallery acknowledgement failed.
   if(!response.ok&&!result?.taskId){
-    if(response.status>=500||!result)throw new RecoverableVideoTaskError(result?.error||'fal.ai acceptance could not be confirmed. Check task history and usage before submitting again.');
+    if(response.status>=500||!result||(response.status===409&&result?.code==='GENERATION_SUBMITTING'))throw new RecoverableVideoTaskError(result?.error||'fal.ai acceptance could not be confirmed. Check task history and usage before submitting again.');
     throw new Error(result?.error||'Failed to start H3 Max generation.');
   }
   if(!result?.taskId)throw new RecoverableVideoTaskError('fal.ai did not confirm a task ID. Check task history before submitting again.');
@@ -1003,6 +1003,7 @@ export const createVideoTask = async (
         generateAudio: audioEnabled !== false,
         ...(videoOperation === 'reference_edit' ? { referenceEditMode: true } : {}),
         ...(videoOperation === 'edit' ? { editSourcePreparationVersion: 1 } : {}),
+        ...(context?.id ? { generationId: context.id } : {}),
       };
 
   if (imageUrls.length > 0) body.imageUrls = imageUrls;
@@ -1026,7 +1027,7 @@ export const createVideoTask = async (
 
   const createData = await createRes.json().catch(() => null);
   if (!createRes.ok && !createData?.taskId) {
-    if (createRes.status >= 500 || !createData) {
+    if (createRes.status >= 500 || createRes.status === 409 && createData?.code === 'GENERATION_SUBMITTING' || !createData) {
       throw new RecoverableVideoTaskError(createData?.error || 'Provider acceptance could not be confirmed. Do not submit again before checking task history.');
     }
     throw new Error(createData?.error || 'Failed to start video generation');

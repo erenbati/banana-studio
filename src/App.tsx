@@ -311,6 +311,12 @@ const AuthorizedWorkspace: React.FC<{
             // generationCost when it later calls saveVideo. Reading those from
             // React state inside resumeVideoPolling is racy.
             resumeVideoPolling(pending.id, pending.taskId, pending);
+          } else if (pending.status === 'processing') {
+            // An unknown provider acknowledgement is not proof of failure.
+            // Keep this row for task-history reconciliation instead of inviting a paid retry.
+            setGeneratedMedia(prev => prev.map(item => item.id === pending.id
+              ? { ...item, isLoading: false, status: 'processing', error: 'Task submission may already have been accepted. Check provider history before retrying.' }
+              : item));
           } else {
             updateVideoStatus(pending.id, 'failed', { metadata: { error: 'Generation interrupted before task was created' } });
             setGeneratedMedia(prev => prev.map(item =>
