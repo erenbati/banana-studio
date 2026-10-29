@@ -203,7 +203,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(response.status).json({ error });
       }
       if (!data?.request_id) return res.status(502).json({ error: 'fal.ai response missing request_id' });
-      await registerProviderTask(registry, 'fal', data.request_id, user.id);
+      try {
+        await registerProviderTask(registry, 'fal', data.request_id, user.id);
+      } catch {
+        // The provider already accepted the paid task. Preserve its confirmed ID
+        // and try to record billing even when the private ownership registry is down.
+        // Polling remains blocked by requireProviderTask until registry recovery.
+        await recordH3Usage(registry, { taskId: data.request_id, userId: user.id, mode,
+          prompt: typeof body.prompt === 'string' ? body.prompt : '', generationId: galleryClaim?.id, estimatedCostUsd })
+          .catch(() => undefined);
+        return res.status(503).json({
+          error: 'fal.ai accepted this video, but its private task registration is unavailable. Do not submit again; contact an administrator to restore access.',
+          taskId: data.request_id, endpoint, queueEndpoint: endpoint, retryable: true,
+        });
+      }
       // The REST submit response is authoritative for lifecycle routing. Some
       // model IDs submit at a sub-route while fal serves status/result from the
       // parent queue app, so do not reconstruct this path from the model ID.
