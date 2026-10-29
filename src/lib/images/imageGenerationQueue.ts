@@ -1,5 +1,17 @@
 export type ImageSubmissionStage = 'preparing' | 'queued' | 'generating';
 
+/** A presentation callback must not interrupt accepted provider work or polling. */
+export const createImageStageNotifier = (
+  onStage?: (stage: ImageSubmissionStage, waitReason?: 'rate' | 'quota') => void,
+) => {
+  let detached = false;
+  return (stage: ImageSubmissionStage, waitReason?: 'rate' | 'quota'): void => {
+    if (!onStage || detached) return;
+    try { onStage(stage, waitReason); }
+    catch { detached = true; }
+  };
+};
+
 type Ticket = {
   waitForCapacity(checkSession: () => Promise<void>): Promise<void>;
   defer(milliseconds: number): void;
