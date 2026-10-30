@@ -7,7 +7,8 @@ function fixture(overrides = {}) {
   let row = { id: 'gen1', user_id: 'user1', type: 'video', image_model: 'seedance-2.5',
     status: 'pending', task_id: '', metadata: {}, ...overrides };
   const registered = new Map();
-  let claims = 0, saves = 0;
+  let claims = 0, saves = 0, saveAttempts = 0;
+  let metadataMutation = null, mutationsLeft = 0;
   const db = { from(table) {
     let op = 'select', patch, fields = {}, returning = false;
     const q = {
@@ -25,6 +26,13 @@ function fixture(overrides = {}) {
           const owner = registered.get(fields.task_id);
           return { data: owner && fields.user_id === owner && fields.provider ? { user_id: owner } : null, error: null };
         }
+        if (row && op === 'update' && 'task_id' in patch) {
+          saveAttempts++;
+          if (mutationsLeft > 0) {
+            row = { ...row, metadata: metadataMutation(row, saveAttempts) };
+            mutationsLeft--;
+          }
+        }
         const matches = row && Object.entries(fields).every(([key, value]) => key === 'metadata' ? JSON.stringify(row.metadata) === value : row[key] === value);
         if (!matches) return { data: null, error: null };
         if (op === 'update') {
@@ -38,7 +46,8 @@ function fixture(overrides = {}) {
   }};
   const res = { code: 200, payload: null, status(n) { this.code = n; return this; }, json(x) { this.payload = x; return this; } };
   return { db, res, register: (taskId, owner = 'user1') => registered.set(taskId, owner),
-    row: () => row, count: () => ({ claims, saves }), deleteRow: () => {row = null;} };
+    mutateBeforeConditionalSave: (fn, times = 1) => { metadataMutation = fn; mutationsLeft = times; },
+    row: () => row, count: () => ({ claims, saves, saveAttempts }), deleteRow: () => {row = null;} };
 }
 const claim = f => claimVideoSubmission(f.db, f.res, 'gen1', 'user1', 'fal', 'seedance-2.5', body);
 
@@ -157,4 +166,24 @@ test('a tracking failure explicitly reports that no provider request was dispatc
   assert.equal(result, null);
   assert.equal(res.code, 503);
   assert.equal(res.payload.dispatched, false);
+});
+
+test('accepted task save retries with fresh metadata after a concurrent gallery edit', async () => {
+  const f = fixture({ status: 'processing', metadata: { album: 'before' } });
+  f.mutateBeforeConditionalSave((row) => ({ ...row.metadata, album: 'after', note: 'keep me' }), 1);
+  assert.equal(await saveAcceptedVideoTask(f.db, 'gen1', 'user1', 'accepted-id', { providerUsage: { credits: 2 } }), true);
+  assert.equal(f.count().saves, 1);
+  assert.equal(f.count().saveAttempts, 2);
+  assert.equal(f.row().task_id, 'accepted-id');
+  assert.deepEqual(f.row().metadata, { album: 'after', note: 'keep me', providerUsage: { credits: 2 } });
+});
+
+test('accepted task save gives up without overwriting repeatedly changing metadata', async () => {
+  const f = fixture({ status: 'processing', metadata: { album: 'before' } });
+  f.mutateBeforeConditionalSave((row, attempt) => ({ ...row.metadata, revision: attempt }), 3);
+  assert.equal(await saveAcceptedVideoTask(f.db, 'gen1', 'user1', 'accepted-id'), false);
+  assert.equal(f.count().saveAttempts, 3);
+  assert.equal(f.count().saves, 0);
+  assert.equal(f.row().task_id, '');
+  assert.equal(f.row().metadata.revision, 3);
 });
