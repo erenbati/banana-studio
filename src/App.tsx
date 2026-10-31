@@ -777,6 +777,14 @@ const AuthorizedWorkspace: React.FC<{
     }
   };
 
+  const handleRecoverVideo = (media: GeneratedMedia) => {
+    if (!media.taskId) {
+      toast.error('Recovery Unavailable', 'This video does not have a saved provider task ID.');
+      return;
+    }
+    resumeVideoPolling(media.id, media.taskId, media);
+  };
+
   // An accepted provider ID may be persisted after the initial history load.
   // Only previously reloaded, handle-less processing rows are watched here;
   // this never creates a new provider request or touches in-flight submissions.
@@ -829,14 +837,6 @@ const AuthorizedWorkspace: React.FC<{
       window.removeEventListener('focus', checkSavedTasks);
     };
   }, [isAuthenticated, userId]);
-
-  const handleRecoverVideo = (media: GeneratedMedia) => {
-    if (!media.taskId) {
-      toast.error('Recovery Unavailable', 'This video does not have a saved provider task ID.');
-      return;
-    }
-    resumeVideoPolling(media.id, media.taskId, media);
-  };
 
   const handleRecoverImage = async (media: GeneratedMedia) => {
     try {
