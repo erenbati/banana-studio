@@ -15,13 +15,15 @@ const { findLateVideoTaskId } = await import(
 const pending = () => ({ id: 'video-1', mediaType: 'video', status: 'processing', taskId: undefined });
 
 test('a provider task ID saved after page reload becomes discoverable without submitting again', async () => {
-  let live = pending();
+  const live = pending();
   let saved = pending();
   let reads = 0;
   const lookup = () => findLateVideoTaskId(live.id, new Set(), () => live, async () => { reads++; return saved; });
   assert.equal(await lookup(), null);
   saved = { ...saved, taskId: 'bs_fal_existing' };
-  assert.equal((await lookup())?.taskId, 'bs_fal_existing');
+  const result = await lookup();
+  assert.equal(result?.kind, 'accepted');
+  assert.equal(result?.media.taskId, 'bs_fal_existing');
   assert.equal(reads, 2);
 });
 
@@ -29,18 +31,19 @@ test('concurrent checks do not read the same saved video twice', async () => {
   const live = pending();
   const checking = new Set();
   let finish;
-  const reading = () => new Promise(resolve => { finish = resolve; });
-  const first = findLateVideoTaskId(live.id, checking, () => live, reading);
+  const first = findLateVideoTaskId(live.id, checking, () => live, () => new Promise(resolve => { finish = resolve; }));
   let duplicateReads = 0;
   const duplicate = await findLateVideoTaskId(live.id, checking, () => live, async () => { duplicateReads++; return null; });
   assert.equal(duplicate, null);
   assert.equal(duplicateReads, 0);
   finish({ ...live, taskId: 'saved-task' });
-  assert.equal((await first)?.taskId, 'saved-task');
+  const result = await first;
+  assert.equal(result?.kind, 'accepted');
+  assert.equal(result?.media.taskId, 'saved-task');
   assert.equal(checking.size, 0);
 });
 
-test('a row that disappeared or finished while reading cannot restart polling', async () => {
+test('a row that disappeared or finished locally while reading cannot restart polling', async () => {
   let live = pending();
   const lookup = findLateVideoTaskId(live.id, new Set(), () => live, async () => {
     live = { ...live, status: 'failed' };
@@ -48,4 +51,28 @@ test('a row that disappeared or finished while reading cannot restart polling', 
   });
   assert.equal(await lookup, null);
   assert.equal(await findLateVideoTaskId(live.id, new Set(), () => live, async () => ({ ...pending(), taskId: 'old-task' })), null);
+});
+
+test('saved completed and failed rows are terminal, not indefinitely waiting for a task ID', async () => {
+  const live = pending();
+  for (const status of ['completed', 'failed']) {
+    const saved = { ...live, status, error: status === 'failed' ? 'Provider rejected' : undefined };
+    const found = await findLateVideoTaskId(live.id, new Set(), () => live, async () => saved);
+    assert.equal(found?.kind, 'terminal');
+    assert.equal(found?.media.status, status);
+    assert.equal(found?.media.error, saved.error);
+  }
+});
+
+test('a rejected saved-row read releases the lock and the same video can retry', async () => {
+  const live = pending();
+  const checking = new Set();
+  await assert.rejects(
+    findLateVideoTaskId(live.id, checking, () => live, async () => { throw new Error('read failed'); }),
+    /read failed/
+  );
+  assert.equal(checking.size, 0);
+  const result = await findLateVideoTaskId(live.id, checking, () => live, async () => ({ ...live, taskId: 'saved-task' }));
+  assert.equal(result?.kind, 'accepted');
+  assert.equal(result?.media.taskId, 'saved-task');
 });

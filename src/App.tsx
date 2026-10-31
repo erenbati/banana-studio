@@ -800,7 +800,7 @@ const AuthorizedWorkspace: React.FC<{
       for (const id of [...awaitingSavedVideoTaskIdsRef.current]) {
         if (cancelled) return;
         try {
-          const saved = await findLateVideoTaskId(
+          const found = await findLateVideoTaskId(
             id,
             checkingSavedVideoTaskIdsRef.current,
             () => generatedMediaRef.current.find(item => item.id === id),
@@ -812,12 +812,25 @@ const AuthorizedWorkspace: React.FC<{
             awaitingSavedVideoTaskIdsRef.current.delete(id);
             continue;
           }
-          if (!saved?.taskId || !awaitingSavedVideoTaskIdsRef.current.delete(id)) continue;
+          if (!found || !awaitingSavedVideoTaskIdsRef.current.delete(id)) continue;
+          const saved = found.media;
           const recovered = {
             ...current,
             ...saved,
             referenceImages: saved.referenceImages?.length ? saved.referenceImages : current.referenceImages,
           };
+          if (found.kind === 'terminal') {
+            // Another tab has already finished this request. Reflect its saved
+            // result and stop polling; a new paid request is never needed.
+            setGeneratedMedia(items => items.map(item =>
+              item.id === id && item.status === 'processing' && !item.taskId
+                ? { ...item, ...recovered, status: saved.status === 'completed' ? 'completed' as const : 'failed' as const,
+                    isLoading: false, videoProgress: undefined, videoStage: undefined }
+                : item
+            ));
+            continue;
+          }
+          if (!saved.taskId) continue;
           setGeneratedMedia(items => items.map(item =>
             item.id === id && item.status === 'processing' && !item.taskId
               ? { ...item, ...recovered, status: 'processing' as const }
