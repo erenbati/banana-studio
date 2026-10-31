@@ -64,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!user) return;
 
   const apiKey = process.env.EVOLINK_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'EvoLink API key not configured' });
+  if (!apiKey) return res.status(500).json({ error: 'EvoLink API key not configured', dispatched: false });
 
   try {
     let body: GenerateRequest;

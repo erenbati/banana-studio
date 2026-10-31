@@ -1016,10 +1016,11 @@ export const createVideoTask = async (
   const { data: { session: submitSession } } = await supabase.auth.getSession();
   if (submitSession?.user?.id !== initiatingUserId) throw new Error('Session changed before video submission.');
   let createRes: Response;
+  const headers = await getServerAuthHeaders(initiatingUserId);
   try {
     createRes = await fetch('/api/seedance-video', {
       method: 'POST',
-      headers: await getServerAuthHeaders(initiatingUserId),
+      headers,
       body: JSON.stringify(body),
     });
   } catch {

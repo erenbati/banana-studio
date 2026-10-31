@@ -136,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!user) return;
 
   const apiKey = process.env.FAL_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'FAL_KEY not configured on server' });
+  if (!apiKey) return res.status(500).json({ error: 'FAL_KEY not configured on server', dispatched: false });
 
   try {
     if (req.method === 'POST') {
@@ -165,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (body.generationId) {
         const { data: saved, error: readError } = await registry.from('generations')
           .select('id,user_id,type,status,task_id,metadata').eq('id', body.generationId).eq('user_id', user.id).maybeSingle();
-        if (readError) return res.status(503).json({ error: 'Saved generation access could not be verified. No provider request was sent.' });
+        if (readError) return res.status(503).json({ error: 'Saved generation access could not be verified. No provider request was sent.', dispatched: false });
         if (!saved || saved.user_id !== user.id || saved.type !== 'video') return res.status(404).json({ error: 'Saved video generation not found' });
         const metadata = saved.metadata && typeof saved.metadata === 'object' && !Array.isArray(saved.metadata) ? saved.metadata : {};
         if (saved.task_id && metadata.h3MaxMode && metadata.h3MaxMode !== mode)
@@ -189,7 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const claimedMetadata = { ...metadata, h3SubmissionStartedAt: Date.now(), h3MaxMode: mode, falEndpoint: endpoint };
         const { data: claimed, error: claimError } = await registry.from('generations')
           .update({ status: 'processing', metadata: claimedMetadata }).eq('id', body.generationId).eq('user_id', user.id).eq('status', 'pending').select('id').maybeSingle();
-        if (claimError) return res.status(503).json({ error: 'The saved video could not be claimed. No provider request was sent.' });
+        if (claimError) return res.status(503).json({ error: 'The saved video could not be claimed. No provider request was sent.', dispatched: false });
         if (!claimed) return res.status(409).json({ code: 'GENERATION_SUBMITTING', error: 'This saved video is already being submitted. Check the existing task instead of submitting again.' });
         galleryClaim = { id: body.generationId, metadata: claimedMetadata };
       }
